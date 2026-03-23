@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 import sqlite3
 from datetime import datetime, timedelta
 app = FastAPI()
@@ -11,7 +12,9 @@ def musteri_database():
         CREATE TABLE IF NOT EXISTS musteri_koltuklari(
                 id INTEGER PRIMARY KEY,
                 durum TEXT,
-                gecerlilik TEXT
+                gecerlilik TEXT,
+                isim TEXT,
+                telefon TEXT
                 )
     """
     )
@@ -88,3 +91,45 @@ def rezerve_et(koltuk_no:int):
     conn.commit()
     conn.close()
     return{"Mesaj:":f"{koltuk_no} numaralı koltuk için ödeme bekleniyor.","Kalan Sure:":"1 dakika","Son Ödeme Saati:":f"{limit_zaman_str}"}    
+
+class OdemeBilgisi(BaseModel):
+    isim: str
+    telefon: str
+
+
+
+@app.post("/odeme/{koltuk_no}")
+def odeme(koltuk_no:int, bilgi:OdemeBilgisi):
+    conn = sqlite3.connect("rezervasyon.db")
+    curr = conn.cursor()
+    curr.execute("SELECT durum, gecerlilik FROM musteri_koltuklari WHERE id = ?",(koltuk_no,))
+    sonuc = curr.fetchone()
+
+    if sonuc is None:
+        conn.close()
+        raise HTTPException(status_code=404,detail="Bu numaraya sahip bir koltuk yok!")
+    durum = sonuc[0]
+    sure_str = sonuc[1]
+
+    if durum == "Boş":
+        conn.close()
+        raise HTTPException(status_code=400,detail="Bu koltuk henüz rezerve edilmemiş ödeme yapılamaz!")
+    
+    if durum == "Dolu":
+        conn.close()
+        raise HTTPException(status_code=400,detail="Bu koltuk Dolu. Bu koltuk satın alınamaz!")
+
+    if durum == "Askıda" and sure_str is not None:
+        sure = datetime.strptime(sure_str,"%Y-%m-%d %H:%M:%S")
+        guncel_zaman = datetime.now()
+        if guncel_zaman > sure:
+            curr.execute("UPDATE musteri_koltuklari SET durum ='Boş', gecerlilik = NULL WHERE id = ?",(koltuk_no,))
+            conn.commit()
+            conn.close()
+            raise HTTPException(status_code=400,detail="Odeme yapılamıyor. Verilen süre aşıldı.")
+        else:
+            curr.execute("UPDATE musteri_koltuklari SET durum ='Dolu', gecerlilik = NULL, isim= ?, telefon =? WHERE id =?",(bilgi.isim,bilgi.telefon,koltuk_no))
+            conn.commit()
+            conn.close()
+
+            return{"Başarılı:":f"{koltuk_no} numaralı koltuk {bilgi.isim} adına başarıyla satın alındı."}
