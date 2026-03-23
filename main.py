@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 import sqlite3
 from datetime import datetime, timedelta
 app = FastAPI()
@@ -31,12 +31,11 @@ def durum_sorgula(koltuk_no:int):
     curr = conn.cursor()
     curr.execute("SELECT durum,gecerlilik FROM musteri_koltuklari WHERE id = ? ",(koltuk_no,))
     sonuc = curr.fetchone()
-    
 
-    
     if sonuc is None:
         conn.close()
-        return{"UYARI:":f"{koltuk_no} numaralı koltuk yok"}
+        raise HTTPException(status_code=404,detail="Bu numaraya sahip bir koltuk yok!")
+        
     durum = sonuc[0]
     sure_str = sonuc[1]
     if durum == "Askıda" and sure_str is not None:
@@ -62,14 +61,15 @@ def rezerve_et(koltuk_no:int):
 
     if sonuc is None:
         conn.close()
-        return {"Uyarı:":f"{koltuk_no} numaralı koltuk yok."}
+        raise HTTPException(status_code=404,detail="Bu numaraya sahip bir koltuk yok!")
+        
     
     durum = sonuc[0]
     sure_str = sonuc[1]
     
     if durum == "Dolu":
         conn.close()
-        return{"Uyarı:":f"{koltuk_no} numaralı koltuk dolu başka koltuk seçin."}
+        raise HTTPException(status_code=400,detail="Bu koltuk zaten satın alınmış!")
     
     if durum == "Askıda" and sure_str is not None:
         sure = datetime.strptime(sure_str,"%Y-%m-%d %H:%M:%S")
@@ -79,7 +79,7 @@ def rezerve_et(koltuk_no:int):
             conn.commit()
         else:
             conn.close()
-            return{"Uyarı:":f"{koltuk_no} numaralı koltuk şu anda başka birinin sepetinde. Ödeme yapması bekleniyor."}
+            raise HTTPException(status_code=400,detail="Bu koltuk satın alınmak üzere askıda bekletiliyor!")
     guncel_zaman = datetime.now()
     limit_zaman = guncel_zaman + timedelta(minutes=1)
     limit_zaman_str = limit_zaman.strftime("%Y-%m-%d %H:%M:%S")
