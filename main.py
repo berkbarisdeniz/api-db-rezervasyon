@@ -16,7 +16,8 @@ async def init_db():
                 gecerlilik TEXT,
                 isim TEXT,
                 telefon TEXT,
-                satis_zamani TEXT
+                satis_zamani TEXT,
+                versiyon INTEGER DEFAULT 1
                 )
     """
     )
@@ -72,7 +73,7 @@ async def durum_sorgula(koltuk_no:int):
 
 async def rezerve_et(koltuk_no:int):
     async with aiosqlite.connect("rezervasyon.db") as db:
-        async with db.execute("SELECT durum,gecerlilik FROM musteri_koltuklari WHERE id = ?",(koltuk_no,)) as cursor:
+        async with db.execute("SELECT durum,gecerlilik,versiyon FROM musteri_koltuklari WHERE id = ?",(koltuk_no,)) as cursor:
             sonuc = await cursor.fetchone()
 
         if sonuc is None:
@@ -80,6 +81,7 @@ async def rezerve_et(koltuk_no:int):
                 
         durum = sonuc[0]
         sure_str = sonuc[1]
+        versiyon = sonuc[2]
         
         if durum == "Dolu":
             raise HTTPException(status_code=400,detail="Bu koltuk zaten satın alınmış!")
@@ -95,7 +97,9 @@ async def rezerve_et(koltuk_no:int):
         guncel_zaman = datetime.now()
         limit_zaman = guncel_zaman + timedelta(minutes=1)
         limit_zaman_str = limit_zaman.strftime("%Y-%m-%d %H:%M:%S")
-        await db.execute("UPDATE musteri_koltuklari SET durum ='Askıda', gecerlilik = ? WHERE id = ?",(limit_zaman_str,koltuk_no))
+        async with db.execute("UPDATE musteri_koltuklari SET durum ='Askıda',versiyon = versiyon + 1, gecerlilik = ? WHERE id = ? and versiyon = ?",(limit_zaman_str,koltuk_no,versiyon)) as cursor:
+            if cursor.rowcount == 0:
+                raise HTTPException(status_code=409, detail="İşlem reddedildi. Koltuk az önce başka biri tarafından rezerve edildi!")
         await db.commit()
         return{"Mesaj:":f"{koltuk_no} numaralı koltuk için ödeme bekleniyor.","Kalan Sure:":"1 dakika","Son Ödeme Saati:":f"{limit_zaman_str}"}    
 
